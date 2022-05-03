@@ -1,0 +1,133 @@
+---
+title: "PSTAT 131 HW 4"
+author: "Raymond Lee"
+date: '2022-04-24'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(discrim)
+library(klaR)
+tidymodels_prefer()
+
+titanic = read.csv("titanic.csv")
+titanic$survived = factor(titanic$survived, levels = c("Yes", "No"))
+titanic$pclass = factor(titanic$pclass)
+
+set.seed(1114)
+```
+
+1. 
+```{r}
+titanic_split = initial_split(titanic, prop = .70, strata = survived)
+titanic_train = training(titanic_split)
+titanic_test = testing(titanic_split)
+
+titanic_recipe = recipe(survived ~ pclass + sex + age + sib_sp + parch + fare,
+                        data = titanic_train) %>%
+  step_impute_linear(age) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_interact(~ starts_with("sex"):fare) %>%
+  step_interact(~ age:fare) %>% 
+  step_nzv(all_predictors())
+```
+
+2. 
+```{r}
+library(tune)
+
+titanic_folds = vfold_cv(titanic_train, v = 10)
+titanic_folds
+```
+
+3. K-fold cross-validation is when we split the training set into folds to use in assessing model performance
+and selecting the best model. Less data are used to figure out the best model, allowing us to set aside 
+enough data for the testing set. This would be especially useful when we have limited data available. Using the the entire training set would be the validation set approach.
+
+4. 
+```{r}
+log_reg = logistic_reg() %>%
+  set_engine("glm")
+
+log_workflow = workflow() %>%
+  add_model(log_reg) %>%
+  add_recipe(titanic_recipe)
+```
+
+```{r}
+lda_mod = discrim_linear() %>%
+  set_mode("classification") %>%
+  set_engine("MASS")
+
+lda_workflow = workflow() %>%
+  add_model(lda_mod) %>%
+  add_recipe(titanic_recipe)
+```
+
+```{r}
+qda_mod = discrim_quad() %>%
+  set_mode("classification") %>%
+  set_engine("MASS")
+
+qda_workflow <- workflow() %>% 
+  add_model(qda_mod) %>% 
+  add_recipe(titanic_recipe)
+```
+
+There are 10 folds and 3 models. Therefore, 30 models will be fitted across all folds
+
+5. 
+```{r}
+log_fit_folds = log_workflow %>% 
+  fit_resamples(titanic_folds)
+```
+
+```{r}
+lda_fit_folds = lda_workflow %>% 
+  fit_resamples(titanic_folds)
+```
+
+```{r}
+qda_fit_folds = qda_workflow %>% 
+  fit_resamples(titanic_folds)
+```
+
+6. 
+```{r}
+collect_metrics(log_fit_folds)
+```
+
+```{r}
+collect_metrics(lda_fit_folds)
+```
+
+```{r}
+collect_metrics(qda_fit_folds)
+```
+
+The logistic regression model performed the best because it has the highest mean accuracy
+and lowest standard error for the accuracy. 
+
+7. 
+```{r}
+log_fit = fit(log_workflow, titanic_train)
+```
+
+8. 
+```{r}
+log_predict = predict(log_fit, new_data = titanic_test, type = "prob")
+log_predict
+
+log_test_acc = augment(log_fit, new_data=titanic_test) %>%
+  accuracy(truth = survived, estimate = .pred_class)
+log_test_acc
+```
+
+The testing accuracy is slightly higher than the average accuracy across folds, but they are quite close.
+The average accuracy across fields appears to be a good indicator of the testing accuracy. 
